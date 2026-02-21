@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Annotated, cast
 from uuid import uuid4
 
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, Response
 import httpx
 import websockets
@@ -411,7 +411,7 @@ async def comfy_history_proxy(prompt_id: str) -> JSONObject:
 async def comfy_view_proxy(
     filename: str,
     subfolder: str = "",
-    folder_type: str = "output",
+    folder_type: Annotated[str, Query(alias="type")] = "output",
 ) -> Response:
     key = (filename, subfolder, folder_type)
     async with router_state_lock:
