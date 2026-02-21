@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+router_data/
+comfy/gpu0/run/
+comfy/gpu0/basedir/
+comfy/gpu1/run/
+comfy/gpu1/basedir/
+comfy/gpu2/run/
+comfy/gpu2/basedir/
+comfy/gpu3/run/
+comfy/gpu3/basedir/
