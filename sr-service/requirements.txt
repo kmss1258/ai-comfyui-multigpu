@@ -1,4 +1,7 @@
-fastapi==0.116.1
-uvicorn[standard]==0.35.0
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
 python-multipart==0.0.20
-pydub==0.25.1
+einops==0.8.0
+timm==1.0.14
+soxr==0.5.0.post1
+huggingface_hub>=0.25.0

@@ -1,14 +1,24 @@
-FROM python:3.11-slim
+ARG BASE=nvcr.io/nvidia/pytorch:23.10-py3
 
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
+FROM ${BASE}
 
-WORKDIR /app
+ENV DEBIAN_FRONTEND=noninteractive
 
-COPY requirements.txt ./requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg git ca-certificates && rm -rf /var/lib/apt/lists/*
 
-COPY app ./app
+WORKDIR /srv/sr
 
-ENV PYTHONUNBUFFERED=1
+COPY requirements.txt /tmp/sr-requirements.txt
+RUN pip install --no-cache-dir -r /tmp/sr-requirements.txt
+RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cu121 torchaudio==2.1.0
+RUN pip install --no-cache-dir --no-deps git+https://github.com/ysharma3501/NovaSR.git
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+COPY app /srv/sr/app
+
+ENV NOVASR_DEVICE=auto
+ENV NOVASR_HALF=1
+ENV FFMPEG_PATH=ffmpeg
+
+EXPOSE 8000
+
+CMD ["python3", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
