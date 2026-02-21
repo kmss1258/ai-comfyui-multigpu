@@ -1,4 +1,17 @@
 services:
+  init-permissions:
+    image: alpine:3.20
+    container_name: comfy-init-permissions-gpu0
+    user: "0:0"
+    command: >-
+      sh -lc "
+      mkdir -p /workspace/run /workspace/basedir
+      && chown -R ${WANTED_UID:-1000}:${WANTED_GID:-1000} /workspace/run /workspace/basedir
+      "
+    volumes:
+      - ./:/workspace
+    restart: "no"
+
   comfyui-gpu0:
     image: mmartial/comfyui-nvidia-docker:ubuntu22_cuda12.2-20260121
     container_name: comfyui-gpu0
@@ -25,6 +38,9 @@ services:
             - driver: nvidia
               device_ids: ["0"]
               capabilities: [gpu]
+    depends_on:
+      init-permissions:
+        condition: service_completed_successfully
     networks:
       - comfy-net
 
