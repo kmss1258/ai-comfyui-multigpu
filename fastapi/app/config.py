@@ -12,6 +12,7 @@ class Settings:
     output_dir: Path
     prompt_lease_ttl_seconds: float
     prompt_concurrency_per_worker: int
+    super_resolve_base_url: str | None
 
 
 def load_settings() -> Settings:
@@ -46,10 +47,14 @@ def load_settings() -> Settings:
     if prompt_concurrency <= 0:
         raise ValueError("PROMPT_CONCURRENCY_PER_WORKER must be greater than zero")
 
+    super_resolve_base_url_raw = (os.getenv("SUPER_RESOLVE_BASE_URL") or "").strip()
+    super_resolve_base_url = super_resolve_base_url_raw or None
+
     return Settings(
         comfyui_workers=workers,
         request_timeout_seconds=timeout,
         output_dir=output_dir,
         prompt_lease_ttl_seconds=prompt_lease_ttl,
         prompt_concurrency_per_worker=prompt_concurrency,
+        super_resolve_base_url=super_resolve_base_url,
     )

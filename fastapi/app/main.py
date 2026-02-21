@@ -127,6 +127,13 @@ def _response_headers_for_client(headers: httpx.Headers) -> dict[str, str]:
     return {k: v for k, v in headers.items() if k.lower() not in blocked}
 
 
+def _normalize_base_url(raw: str) -> str:
+    value = raw.strip()
+    if value.startswith("http://") or value.startswith("https://"):
+        return value.rstrip("/")
+    return f"http://{value.rstrip('/')}"
+
+
 async def _passthrough_http(request: Request, worker_host_port: str) -> Response:
     worker = _get_worker_or_500(worker_host_port)
     timeout = httpx.Timeout(settings.request_timeout_seconds)
@@ -704,13 +711,17 @@ async def super_resolve_proxy(
     if not audio_bytes:
         raise HTTPException(status_code=400, detail="audio file is empty")
 
-    target_worker = pool.workers[0]
+    upstream_base = settings.super_resolve_base_url
+    if upstream_base:
+        target_base_url = _normalize_base_url(upstream_base)
+    else:
+        target_base_url = pool.workers[0].http_base_url
     timeout = httpx.Timeout(settings.request_timeout_seconds)
 
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.post(
-                f"{target_worker.http_base_url}/v1/audio/super-resolve",
+                f"{target_base_url}/v1/audio/super-resolve",
                 files={
                     "audio": (
                         audio.filename or "audio.wav",

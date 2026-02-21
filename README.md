@@ -63,7 +63,16 @@ wait
 
 ### Super Resolution API (19164)
 
-`/v1/audio/super-resolve`는 첫 번째 인식 워커(현재 설정상 `comfyui-gpu0`)로 프록시됩니다.
+`/v1/audio/super-resolve`는 기본적으로 첫 번째 워커로 프록시됩니다.
+
+ComfyUI 업스트림이 해당 엔드포인트를 지원하지 않으면 `405 Method Not Allowed`가 날 수 있습니다.
+이 경우 `SUPER_RESOLVE_BASE_URL`을 vLLM TTS 서버 주소로 설정하세요.
+
+예시:
+
+```env
+SUPER_RESOLVE_BASE_URL=http://n.kami.live:19160
+```
 
 ```bash
 curl -X POST "http://localhost:19164/v1/audio/super-resolve" \
