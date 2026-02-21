@@ -10,6 +10,7 @@ class Settings:
     comfyui_workers: tuple[str, ...]
     request_timeout_seconds: float
     output_dir: Path
+    prompt_lease_ttl_seconds: float
 
 
 def load_settings() -> Settings:
@@ -28,8 +29,17 @@ def load_settings() -> Settings:
 
     output_dir = Path(os.getenv("OUTPUT_DIR", "/data/outputs")).resolve()
 
+    prompt_lease_ttl_raw = os.getenv("PROMPT_LEASE_TTL_SECONDS", "7200")
+    try:
+        prompt_lease_ttl = float(prompt_lease_ttl_raw)
+    except ValueError as exc:
+        raise ValueError("PROMPT_LEASE_TTL_SECONDS must be numeric") from exc
+    if prompt_lease_ttl <= 0:
+        raise ValueError("PROMPT_LEASE_TTL_SECONDS must be greater than zero")
+
     return Settings(
         comfyui_workers=workers,
         request_timeout_seconds=timeout,
         output_dir=output_dir,
+        prompt_lease_ttl_seconds=prompt_lease_ttl,
     )

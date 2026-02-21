@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import json
 import asyncio
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated, cast
@@ -101,6 +102,8 @@ worker_by_host_port = {worker.host_port: worker for worker in pool.workers}
 client_worker_map: dict[str, str] = {}
 prompt_worker_map: dict[str, str] = {}
 artifact_worker_map: dict[tuple[str, str, str], str] = {}
+prompt_worker_lease_map: dict[str, tuple[str, float]] = {}
+busy_workers: set[str] = set()
 router_state_lock = asyncio.Lock()
 round_robin_index = 0
 
@@ -164,6 +167,56 @@ async def _pick_worker(client_id: str | None) -> str:
         return selected
 
 
+def _cleanup_expired_prompt_leases_locked(now_monotonic: float) -> None:
+    expired_prompt_ids: list[str] = []
+    for prompt_id, lease in prompt_worker_lease_map.items():
+        _, started_at = lease
+        if now_monotonic - started_at >= settings.prompt_lease_ttl_seconds:
+            expired_prompt_ids.append(prompt_id)
+
+    for prompt_id in expired_prompt_ids:
+        host_port, _started_at = prompt_worker_lease_map.pop(prompt_id)
+        busy_workers.discard(host_port)
+        prompt_worker_map.pop(prompt_id, None)
+
+
+async def _acquire_prompt_worker(client_id: str | None) -> str:
+    global round_robin_index
+
+    while True:
+        async with router_state_lock:
+            _cleanup_expired_prompt_leases_locked(time.monotonic())
+
+            mapped_worker = client_worker_map.get(client_id) if client_id else None
+            if mapped_worker:
+                if mapped_worker not in busy_workers:
+                    busy_workers.add(mapped_worker)
+                    return mapped_worker
+            else:
+                worker_count = len(pool.workers)
+                for offset in range(worker_count):
+                    idx = (round_robin_index + offset) % worker_count
+                    candidate = pool.workers[idx].host_port
+                    if candidate in busy_workers:
+                        continue
+                    round_robin_index = (idx + 1) % worker_count
+                    busy_workers.add(candidate)
+                    if client_id:
+                        client_worker_map[client_id] = candidate
+                    return candidate
+
+        await asyncio.sleep(0.05)
+
+
+async def _release_prompt_worker_by_prompt_id(prompt_id: str) -> None:
+    async with router_state_lock:
+        lease = prompt_worker_lease_map.pop(prompt_id, None)
+        if lease is None:
+            return
+        host_port, _started_at = lease
+        busy_workers.discard(host_port)
+
+
 async def _index_history_artifacts(prompt_id: str, history_payload: JSONObject) -> None:
     history_item_obj = history_payload.get(prompt_id)
     if not isinstance(history_item_obj, dict):
@@ -194,6 +247,7 @@ async def _index_history_artifacts(prompt_id: str, history_payload: JSONObject) 
                     folder_type = str(file_info.get("type", "output"))
                     if filename:
                         artifact_worker_map[(filename, subfolder, folder_type)] = worker
+        _cleanup_expired_prompt_leases_locked(time.monotonic())
 
 
 @app.get("/healthz")
@@ -206,12 +260,40 @@ async def healthz() -> JSONObject:
     }
 
 
+@app.get("/router/state")
+async def router_state() -> JSONObject:
+    now_mono = time.monotonic()
+    async with router_state_lock:
+        _cleanup_expired_prompt_leases_locked(now_mono)
+        lease_items = [
+            {
+                "prompt_id": prompt_id,
+                "worker": host_port,
+                "age_seconds": round(max(0.0, now_mono - started_at), 3),
+            }
+            for prompt_id, (host_port, started_at) in prompt_worker_lease_map.items()
+        ]
+
+        return {
+            "workers": [worker.host_port for worker in pool.workers],
+            "busy_workers": sorted(busy_workers),
+            "busy_count": len(busy_workers),
+            "prompt_worker_map_size": len(prompt_worker_map),
+            "client_worker_map_size": len(client_worker_map),
+            "artifact_worker_map_size": len(artifact_worker_map),
+            "prompt_worker_lease_count": len(prompt_worker_lease_map),
+            "prompt_leases": lease_items,
+            "lease_ttl_seconds": settings.prompt_lease_ttl_seconds,
+        }
+
+
 @app.post("/upload/image")
 async def comfy_upload_image_proxy(
     image: Annotated[UploadFile, File(...)],
     overwrite: Annotated[str | None, Form()] = None,
     subfolder: Annotated[str | None, Form()] = None,
     folder_type: Annotated[str | None, Form(alias="type")] = None,
+    client_id: Annotated[str | None, Form()] = None,
 ) -> JSONObject:
     image_bytes = await image.read()
     if not image_bytes:
@@ -225,27 +307,21 @@ async def comfy_upload_image_proxy(
     if folder_type is not None:
         form_data["type"] = folder_type
 
+    selected_host = await _pick_worker(client_id)
+    worker = _get_worker_or_500(selected_host)
+
     timeout = httpx.Timeout(settings.request_timeout_seconds)
-    first_success: JSONObject | None = None
     async with httpx.AsyncClient(timeout=timeout) as client:
-        for worker in pool.workers:
-            try:
-                response = await client.post(
-                    f"{worker.http_base_url}/upload/image",
-                    files={"image": (image.filename or "input.bin", image_bytes, "application/octet-stream")},
-                    data=form_data,
-                )
-                _ = response.raise_for_status()
-                payload_obj = response.json()
-                if isinstance(payload_obj, dict) and first_success is None:
-                    first_success = cast(JSONObject, payload_obj)
-            except Exception:
-                continue
-
-    if first_success is None:
-        raise HTTPException(status_code=502, detail="all workers failed to upload image")
-
-    return first_success
+        response = await client.post(
+            f"{worker.http_base_url}/upload/image",
+            files={"image": (image.filename or "input.bin", image_bytes, "application/octet-stream")},
+            data=form_data,
+        )
+        _ = response.raise_for_status()
+        payload_obj = response.json()
+    if not isinstance(payload_obj, dict):
+        raise HTTPException(status_code=502, detail="invalid upload response from worker")
+    return cast(JSONObject, payload_obj)
 
 
 @app.post("/prompt")
@@ -262,29 +338,44 @@ async def comfy_prompt_proxy(request: Request) -> Response:
     client_id_obj = body.get("client_id")
     client_id = str(client_id_obj) if client_id_obj is not None else None
 
-    target_host = await _pick_worker(client_id)
+    target_host = await _acquire_prompt_worker(client_id)
     worker = _get_worker_or_500(target_host)
 
+    keep_slot_reserved = False
     timeout = httpx.Timeout(settings.request_timeout_seconds)
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        response = await client.post(f"{worker.http_base_url}/prompt", json=body)
-        payload_bytes = response.content
-        status_code = response.status_code
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.post(f"{worker.http_base_url}/prompt", json=body)
+            payload_bytes = response.content
+            status_code = response.status_code
 
-    if status_code < 400:
-        try:
-            payload_obj = json.loads(payload_bytes)
-        except json.JSONDecodeError:
-            payload_obj = None
-        if isinstance(payload_obj, dict):
-            prompt_id_obj = payload_obj.get("prompt_id")
-            if isinstance(prompt_id_obj, str) and prompt_id_obj:
-                async with router_state_lock:
-                    prompt_worker_map[prompt_id_obj] = target_host
-                    if client_id:
-                        client_worker_map[client_id] = target_host
+        if status_code < 400:
+            try:
+                payload_obj = json.loads(payload_bytes)
+            except json.JSONDecodeError:
+                payload_obj = None
+            if isinstance(payload_obj, dict):
+                prompt_id_obj = payload_obj.get("prompt_id")
+                if isinstance(prompt_id_obj, str) and prompt_id_obj:
+                    async with router_state_lock:
+                        prompt_worker_map[prompt_id_obj] = target_host
+                        prompt_worker_lease_map[prompt_id_obj] = (
+                            target_host,
+                            time.monotonic(),
+                        )
+                        if client_id:
+                            client_worker_map[client_id] = target_host
+                        _cleanup_expired_prompt_leases_locked(time.monotonic())
+                    keep_slot_reserved = True
 
-    return Response(content=payload_bytes, status_code=status_code, media_type="application/json")
+        return Response(content=payload_bytes, status_code=status_code, media_type="application/json")
+    finally:
+        if not keep_slot_reserved:
+            async with router_state_lock:
+                busy_workers.discard(target_host)
+                if client_id and client_worker_map.get(client_id) == target_host:
+                    client_worker_map.pop(client_id, None)
+                _cleanup_expired_prompt_leases_locked(time.monotonic())
 
 
 @app.get("/history/{prompt_id}")
@@ -308,7 +399,9 @@ async def comfy_history_proxy(prompt_id: str) -> JSONObject:
             if prompt_id in payload:
                 async with router_state_lock:
                     prompt_worker_map[prompt_id] = host_port
+                    _cleanup_expired_prompt_leases_locked(time.monotonic())
                 await _index_history_artifacts(prompt_id, payload)
+                await _release_prompt_worker_by_prompt_id(prompt_id)
                 return payload
 
     return {}
@@ -378,6 +471,23 @@ async def comfy_ws_proxy(websocket: WebSocket) -> None:
                     if isinstance(incoming, bytes):
                         await websocket.send_bytes(incoming)
                     else:
+                        try:
+                            event_obj = json.loads(incoming)
+                        except json.JSONDecodeError:
+                            event_obj = None
+                        if isinstance(event_obj, dict):
+                            event_type = event_obj.get("type")
+                            event_data_obj = event_obj.get("data")
+                            event_data = event_data_obj if isinstance(event_data_obj, dict) else None
+                            if event_data is not None:
+                                event_prompt_id = event_data.get("prompt_id")
+                                if isinstance(event_prompt_id, str) and event_prompt_id:
+                                    if event_type == "execution_success":
+                                        await _release_prompt_worker_by_prompt_id(event_prompt_id)
+                                    elif event_type == "executing" and event_data.get("node") is None:
+                                        await _release_prompt_worker_by_prompt_id(event_prompt_id)
+                                    elif event_type in ("execution_error", "execution_interrupted"):
+                                        await _release_prompt_worker_by_prompt_id(event_prompt_id)
                         await websocket.send_text(incoming)
 
             tasks = [
