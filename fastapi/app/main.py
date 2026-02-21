@@ -711,17 +711,15 @@ async def super_resolve_proxy(
     if not audio_bytes:
         raise HTTPException(status_code=400, detail="audio file is empty")
 
-    upstream_base = settings.super_resolve_base_url
-    if upstream_base:
-        target_base_url = _normalize_base_url(upstream_base)
-    else:
-        target_base_url = pool.workers[0].http_base_url
     timeout = httpx.Timeout(settings.request_timeout_seconds)
+    if not settings.super_resolve_base_url:
+        raise HTTPException(status_code=500, detail="SUPER_RESOLVE_BASE_URL is not configured")
 
-    try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
+    target_base_url = _normalize_base_url(settings.super_resolve_base_url)
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        try:
             response = await client.post(
-                f"{target_base_url}/v1/audio/super-resolve",
+                f"{target_base_url}{settings.super_resolve_path}",
                 files={
                     "audio": (
                         audio.filename or "audio.wav",
@@ -731,8 +729,8 @@ async def super_resolve_proxy(
                 },
                 data={"output_format": output_format},
             )
-    except httpx.HTTPError as exc:
-        raise HTTPException(status_code=502, detail=f"upstream super-resolve request failed: {exc}") from exc
+        except httpx.HTTPError as exc:
+            raise HTTPException(status_code=502, detail=f"super-resolve upstream request failed: {exc}") from exc
 
     if response.status_code >= 400:
         raise HTTPException(status_code=response.status_code, detail=response.text or "super-resolve failed")

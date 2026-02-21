@@ -5,6 +5,9 @@ from pathlib import Path
 import os
 
 
+DEFAULT_SUPER_RESOLVE_BASE_URL = "http://super-resolve:8000"
+
+
 @dataclass(frozen=True)
 class Settings:
     comfyui_workers: tuple[str, ...]
@@ -13,6 +16,7 @@ class Settings:
     prompt_lease_ttl_seconds: float
     prompt_concurrency_per_worker: int
     super_resolve_base_url: str | None
+    super_resolve_path: str
 
 
 def load_settings() -> Settings:
@@ -48,7 +52,12 @@ def load_settings() -> Settings:
         raise ValueError("PROMPT_CONCURRENCY_PER_WORKER must be greater than zero")
 
     super_resolve_base_url_raw = (os.getenv("SUPER_RESOLVE_BASE_URL") or "").strip()
-    super_resolve_base_url = super_resolve_base_url_raw or None
+    super_resolve_base_url = super_resolve_base_url_raw or DEFAULT_SUPER_RESOLVE_BASE_URL
+
+    super_resolve_path_raw = (os.getenv("SUPER_RESOLVE_PATH") or "/v1/audio/super-resolve").strip()
+    if not super_resolve_path_raw:
+        raise ValueError("SUPER_RESOLVE_PATH cannot be empty")
+    super_resolve_path = super_resolve_path_raw if super_resolve_path_raw.startswith("/") else f"/{super_resolve_path_raw}"
 
     return Settings(
         comfyui_workers=workers,
@@ -57,4 +66,5 @@ def load_settings() -> Settings:
         prompt_lease_ttl_seconds=prompt_lease_ttl,
         prompt_concurrency_per_worker=prompt_concurrency,
         super_resolve_base_url=super_resolve_base_url,
+        super_resolve_path=super_resolve_path,
     )

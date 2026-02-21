@@ -63,16 +63,17 @@ wait
 
 ### Super Resolution API (19164)
 
-`/v1/audio/super-resolve`는 기본적으로 첫 번째 워커로 프록시됩니다.
+이 레포에는 `super-resolve` 컨테이너가 포함되어 있고,
+라우터는 `/v1/audio/super-resolve` 요청을 해당 컨테이너로 전달합니다.
 
-ComfyUI 업스트림이 해당 엔드포인트를 지원하지 않으면 `405 Method Not Allowed`가 날 수 있습니다.
-이 경우 `SUPER_RESOLVE_BASE_URL`을 vLLM TTS 서버 주소로 설정하세요.
-
-예시:
+기본값:
 
 ```env
-SUPER_RESOLVE_BASE_URL=http://n.kami.live:19160
+SUPER_RESOLVE_BASE_URL=http://super-resolve:8000
+SUPER_RESOLVE_PATH=/v1/audio/super-resolve
 ```
+
+외부 SR 서버를 쓰고 싶으면 `SUPER_RESOLVE_BASE_URL`만 바꾸면 됩니다.
 
 ```bash
 curl -X POST "http://localhost:19164/v1/audio/super-resolve" \

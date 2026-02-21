@@ -137,6 +137,16 @@ services:
     networks:
       - comfy-net
 
+  super-resolve:
+    build:
+      context: ./sr-service
+    container_name: comfy-super-resolve
+    restart: unless-stopped
+    expose:
+      - "8000"
+    networks:
+      - comfy-net
+
   fastapi-router:
     build:
       context: ./fastapi
@@ -146,7 +156,8 @@ services:
       COMFYUI_WORKERS: "comfyui-gpu0:8188,comfyui-gpu2:8188,comfyui-gpu3:8188"
       COMFY_REQUEST_TIMEOUT_SECONDS: "3600"
       PROMPT_CONCURRENCY_PER_WORKER: "1"
-      SUPER_RESOLVE_BASE_URL: "${SUPER_RESOLVE_BASE_URL:-}"
+      SUPER_RESOLVE_BASE_URL: "${SUPER_RESOLVE_BASE_URL:-http://super-resolve:8000}"
+      SUPER_RESOLVE_PATH: "${SUPER_RESOLVE_PATH:-/v1/audio/super-resolve}"
       OUTPUT_DIR: "/data/outputs"
     ports:
       - "19164:19164"
@@ -158,6 +169,8 @@ services:
       comfyui-gpu2:
         condition: service_started
       comfyui-gpu3:
+        condition: service_started
+      super-resolve:
         condition: service_started
     networks:
       - comfy-net
