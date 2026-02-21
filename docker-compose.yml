@@ -6,14 +6,10 @@ services:
     command: >-
       sh -lc "
       mkdir -p
-      /workspace/comfy/gpu0/run
-      /workspace/comfy/gpu1/run
-      /workspace/comfy/gpu2/run
-      /workspace/comfy/gpu3/run
-      /workspace/comfy/shared/basedir
+      /workspace/run
+      /workspace/basedir
       /workspace/router_data/outputs
-      && chown -R ${WANTED_UID:-1000}:${WANTED_GID:-1000} /workspace/comfy /workspace/router_data
-      && chmod +x /workspace/comfy/user_script.bash
+      && chown -R ${WANTED_UID:-1000}:${WANTED_GID:-1000} /workspace/run /workspace/basedir /workspace/router_data
       "
     volumes:
       - ./:/workspace
@@ -32,9 +28,8 @@ services:
       NVIDIA_VISIBLE_DEVICES: "0"
       COMFY_CMDLINE_EXTRA: "--listen 0.0.0.0 --port 8188"
     volumes:
-      - ./comfy/gpu0/run:/comfy/mnt
-      - ./comfy/shared/basedir:/basedir
-      - ./comfy/user_script.bash:/comfy/mnt/user_script.bash:ro
+      - ./run:/comfy/mnt
+      - ./basedir:/basedir
     ports:
       - "19165:8188"
     expose:
@@ -65,9 +60,8 @@ services:
   #     NVIDIA_VISIBLE_DEVICES: "1"
   #     COMFY_CMDLINE_EXTRA: "--listen 0.0.0.0 --port 8188"
   #   volumes:
-  #     - ./comfy/gpu1/run:/comfy/mnt
-  #     - ./comfy/shared/basedir:/basedir
-  #     - ./comfy/user_script.bash:/comfy/mnt/user_script.bash:ro
+  #     - ./run-gpu1:/comfy/mnt
+  #     - ./basedir:/basedir
   #   expose:
   #     - "8188"
   #   deploy:
@@ -96,9 +90,8 @@ services:
       NVIDIA_VISIBLE_DEVICES: "2"
       COMFY_CMDLINE_EXTRA: "--listen 0.0.0.0 --port 8188"
     volumes:
-      - ./comfy/gpu2/run:/comfy/mnt
-      - ./comfy/shared/basedir:/basedir
-      - ./comfy/user_script.bash:/comfy/mnt/user_script.bash:ro
+      - ./run:/comfy/mnt
+      - ./basedir:/basedir
     expose:
       - "8188"
     deploy:
@@ -127,9 +120,8 @@ services:
       NVIDIA_VISIBLE_DEVICES: "3"
       COMFY_CMDLINE_EXTRA: "--listen 0.0.0.0 --port 8188"
     volumes:
-      - ./comfy/gpu3/run:/comfy/mnt
-      - ./comfy/shared/basedir:/basedir
-      - ./comfy/user_script.bash:/comfy/mnt/user_script.bash:ro
+      - ./run:/comfy/mnt
+      - ./basedir:/basedir
     expose:
       - "8188"
     deploy:
