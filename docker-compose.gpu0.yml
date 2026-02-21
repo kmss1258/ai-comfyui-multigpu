@@ -7,12 +7,13 @@ services:
       USE_UV: "true"
       WANTED_UID: "${WANTED_UID:-1000}"
       WANTED_GID: "${WANTED_GID:-1000}"
-      BASE_DIRECTORY: /comfy/mnt
+      BASE_DIRECTORY: /basedir
       SECURITY_LEVEL: normal
       NVIDIA_VISIBLE_DEVICES: "0"
       COMFY_CMDLINE_EXTRA: "--listen 0.0.0.0 --port 8188"
     volumes:
-      - ./:/comfy/mnt
+      - ./run:/comfy/mnt
+      - ./basedir:/basedir
     ports:
       - "19163:8188"
     expose:
