@@ -52,36 +52,36 @@ services:
     networks:
       - comfy-net
 
-  comfyui-gpu1:
-    image: mmartial/comfyui-nvidia-docker:ubuntu22_cuda12.2-20260121
-    container_name: comfyui-gpu1
-    restart: unless-stopped
-    environment:
-      USE_UV: "true"
-      WANTED_UID: "${WANTED_UID:-1000}"
-      WANTED_GID: "${WANTED_GID:-1000}"
-      BASE_DIRECTORY: /basedir
-      SECURITY_LEVEL: normal
-      NVIDIA_VISIBLE_DEVICES: "1"
-      COMFY_CMDLINE_EXTRA: "--listen 0.0.0.0 --port 8188"
-    volumes:
-      - ./comfy/gpu1/run:/comfy/mnt
-      - ./comfy/shared/basedir:/basedir
-      - ./comfy/user_script.bash:/comfy/mnt/user_script.bash:ro
-    expose:
-      - "8188"
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              device_ids: ["1"]
-              capabilities: [gpu]
-    depends_on:
-      init-volumes:
-        condition: service_completed_successfully
-    networks:
-      - comfy-net
+  # comfyui-gpu1:
+  #   image: mmartial/comfyui-nvidia-docker:ubuntu22_cuda12.2-20260121
+  #   container_name: comfyui-gpu1
+  #   restart: unless-stopped
+  #   environment:
+  #     USE_UV: "true"
+  #     WANTED_UID: "${WANTED_UID:-1000}"
+  #     WANTED_GID: "${WANTED_GID:-1000}"
+  #     BASE_DIRECTORY: /basedir
+  #     SECURITY_LEVEL: normal
+  #     NVIDIA_VISIBLE_DEVICES: "1"
+  #     COMFY_CMDLINE_EXTRA: "--listen 0.0.0.0 --port 8188"
+  #   volumes:
+  #     - ./comfy/gpu1/run:/comfy/mnt
+  #     - ./comfy/shared/basedir:/basedir
+  #     - ./comfy/user_script.bash:/comfy/mnt/user_script.bash:ro
+  #   expose:
+  #     - "8188"
+  #   deploy:
+  #     resources:
+  #       reservations:
+  #         devices:
+  #           - driver: nvidia
+  #             device_ids: ["1"]
+  #             capabilities: [gpu]
+  #   depends_on:
+  #     init-volumes:
+  #       condition: service_completed_successfully
+  #   networks:
+  #     - comfy-net
 
   comfyui-gpu2:
     image: mmartial/comfyui-nvidia-docker:ubuntu22_cuda12.2-20260121
@@ -151,7 +151,7 @@ services:
     container_name: comfy-fastapi-router
     restart: unless-stopped
     environment:
-      COMFYUI_WORKERS: "comfyui-gpu0:8188,comfyui-gpu1:8188,comfyui-gpu2:8188,comfyui-gpu3:8188"
+      COMFYUI_WORKERS: "comfyui-gpu0:8188,comfyui-gpu2:8188,comfyui-gpu3:8188"
       COMFY_REQUEST_TIMEOUT_SECONDS: "3600"
       OUTPUT_DIR: "/data/outputs"
     ports:
@@ -160,8 +160,6 @@ services:
       - ./router_data:/data
     depends_on:
       comfyui-gpu0:
-        condition: service_started
-      comfyui-gpu1:
         condition: service_started
       comfyui-gpu2:
         condition: service_started
