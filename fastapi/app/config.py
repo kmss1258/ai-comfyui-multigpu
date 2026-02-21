@@ -11,6 +11,7 @@ class Settings:
     request_timeout_seconds: float
     output_dir: Path
     prompt_lease_ttl_seconds: float
+    prompt_concurrency_per_worker: int
 
 
 def load_settings() -> Settings:
@@ -37,9 +38,18 @@ def load_settings() -> Settings:
     if prompt_lease_ttl <= 0:
         raise ValueError("PROMPT_LEASE_TTL_SECONDS must be greater than zero")
 
+    prompt_concurrency_raw = os.getenv("PROMPT_CONCURRENCY_PER_WORKER", "1")
+    try:
+        prompt_concurrency = int(prompt_concurrency_raw)
+    except ValueError as exc:
+        raise ValueError("PROMPT_CONCURRENCY_PER_WORKER must be integer") from exc
+    if prompt_concurrency <= 0:
+        raise ValueError("PROMPT_CONCURRENCY_PER_WORKER must be greater than zero")
+
     return Settings(
         comfyui_workers=workers,
         request_timeout_seconds=timeout,
         output_dir=output_dir,
         prompt_lease_ttl_seconds=prompt_lease_ttl,
+        prompt_concurrency_per_worker=prompt_concurrency,
     )

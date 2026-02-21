@@ -103,7 +103,7 @@ client_worker_map: dict[str, str] = {}
 prompt_worker_map: dict[str, str] = {}
 artifact_worker_map: dict[tuple[str, str, str], str] = {}
 prompt_worker_lease_map: dict[str, tuple[str, float]] = {}
-busy_workers: set[str] = set()
+busy_worker_counts: dict[str, int] = {worker.host_port: 0 for worker in pool.workers}
 router_state_lock = asyncio.Lock()
 round_robin_index = 0
 
@@ -176,7 +176,7 @@ def _cleanup_expired_prompt_leases_locked(now_monotonic: float) -> None:
 
     for prompt_id in expired_prompt_ids:
         host_port, _started_at = prompt_worker_lease_map.pop(prompt_id)
-        busy_workers.discard(host_port)
+        busy_worker_counts[host_port] = max(0, busy_worker_counts.get(host_port, 0) - 1)
         prompt_worker_map.pop(prompt_id, None)
 
 
@@ -189,18 +189,18 @@ async def _acquire_prompt_worker(client_id: str | None) -> str:
 
             mapped_worker = client_worker_map.get(client_id) if client_id else None
             if mapped_worker:
-                if mapped_worker not in busy_workers:
-                    busy_workers.add(mapped_worker)
+                if busy_worker_counts.get(mapped_worker, 0) < settings.prompt_concurrency_per_worker:
+                    busy_worker_counts[mapped_worker] = busy_worker_counts.get(mapped_worker, 0) + 1
                     return mapped_worker
             else:
                 worker_count = len(pool.workers)
                 for offset in range(worker_count):
                     idx = (round_robin_index + offset) % worker_count
                     candidate = pool.workers[idx].host_port
-                    if candidate in busy_workers:
+                    if busy_worker_counts.get(candidate, 0) >= settings.prompt_concurrency_per_worker:
                         continue
                     round_robin_index = (idx + 1) % worker_count
-                    busy_workers.add(candidate)
+                    busy_worker_counts[candidate] = busy_worker_counts.get(candidate, 0) + 1
                     if client_id:
                         client_worker_map[client_id] = candidate
                     return candidate
@@ -214,7 +214,7 @@ async def _release_prompt_worker_by_prompt_id(prompt_id: str) -> None:
         if lease is None:
             return
         host_port, _started_at = lease
-        busy_workers.discard(host_port)
+        busy_worker_counts[host_port] = max(0, busy_worker_counts.get(host_port, 0) - 1)
 
 
 async def _index_history_artifacts(prompt_id: str, history_payload: JSONObject) -> None:
@@ -276,14 +276,16 @@ async def router_state() -> JSONObject:
 
         return {
             "workers": [worker.host_port for worker in pool.workers],
-            "busy_workers": sorted(busy_workers),
-            "busy_count": len(busy_workers),
+            "busy_workers": sorted([host for host, count in busy_worker_counts.items() if count > 0]),
+            "busy_count": sum(busy_worker_counts.values()),
+            "busy_worker_counts": busy_worker_counts,
             "prompt_worker_map_size": len(prompt_worker_map),
             "client_worker_map_size": len(client_worker_map),
             "artifact_worker_map_size": len(artifact_worker_map),
             "prompt_worker_lease_count": len(prompt_worker_lease_map),
             "prompt_leases": lease_items,
             "lease_ttl_seconds": settings.prompt_lease_ttl_seconds,
+            "prompt_concurrency_per_worker": settings.prompt_concurrency_per_worker,
         }
 
 
@@ -372,7 +374,7 @@ async def comfy_prompt_proxy(request: Request) -> Response:
     finally:
         if not keep_slot_reserved:
             async with router_state_lock:
-                busy_workers.discard(target_host)
+                busy_worker_counts[target_host] = max(0, busy_worker_counts.get(target_host, 0) - 1)
                 if client_id and client_worker_map.get(client_id) == target_host:
                     client_worker_map.pop(client_id, None)
                 _cleanup_expired_prompt_leases_locked(time.monotonic())

@@ -72,6 +72,49 @@ curl -X POST "http://localhost:19164/v1/audio/super-resolve" \
   --output sr_output.wav
 ```
 
+## 동시 추론 배율 설정
+
+FastAPI 라우터는 `PROMPT_CONCURRENCY_PER_WORKER` 환경변수로 GPU당 동시 처리량을 제어합니다.
+
+- `1`이면 GPU당 동시 1개
+- `2`로 올리면 GPU당 동시 2개(체감상 2배 추론 슬롯)
+
+설정 위치:
+
+- `docker-compose.yml` -> `fastapi-router.environment.PROMPT_CONCURRENCY_PER_WORKER`
+- `docker-compose.gpu0.yml` -> `fastapi-router.environment.PROMPT_CONCURRENCY_PER_WORKER`
+
+예시:
+
+```yaml
+PROMPT_CONCURRENCY_PER_WORKER: "2"
+```
+
+변경 후 재기동:
+
+```bash
+docker compose down --remove-orphans
+docker compose up -d --build --force-recreate
+```
+
+상태 확인:
+
+```bash
+curl -s http://localhost:19164/router/state
+```
+
+YAML을 수정하지 않고 실행 시점에 바로 주입해도 됩니다.
+
+```bash
+PROMPT_CONCURRENCY_PER_WORKER=2 docker compose up -d --build --force-recreate
+```
+
+또는 `.env`에 넣고 실행해도 됩니다.
+
+```env
+PROMPT_CONCURRENCY_PER_WORKER=2
+```
+
 ## 포트 요약
 
 - ComfyUI(GPU0): `19163`
