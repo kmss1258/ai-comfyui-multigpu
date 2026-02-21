@@ -693,6 +693,41 @@ async def infer(
     }
 
 
+@app.post("/v1/audio/super-resolve")
+async def super_resolve_proxy(
+    audio: Annotated[UploadFile, File(...)],
+    output_format: Annotated[str, Form()] = "wav",
+) -> Response:
+    audio_bytes = await audio.read()
+    if not audio_bytes:
+        raise HTTPException(status_code=400, detail="audio file is empty")
+
+    target_worker = pool.workers[0]
+    timeout = httpx.Timeout(settings.request_timeout_seconds)
+
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.post(
+                f"{target_worker.http_base_url}/v1/audio/super-resolve",
+                files={
+                    "audio": (
+                        audio.filename or "audio.wav",
+                        audio_bytes,
+                        audio.content_type or "application/octet-stream",
+                    )
+                },
+                data={"output_format": output_format},
+            )
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"upstream super-resolve request failed: {exc}") from exc
+
+    if response.status_code >= 400:
+        raise HTTPException(status_code=response.status_code, detail=response.text or "super-resolve failed")
+
+    content_type = response.headers.get("content-type", "audio/mpeg")
+    return Response(content=response.content, media_type=content_type)
+
+
 @app.api_route(
     "/{full_path:path}",
     methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"],
