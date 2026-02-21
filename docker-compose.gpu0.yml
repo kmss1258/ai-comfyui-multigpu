@@ -1,20 +1,4 @@
 services:
-  init-volumes:
-    image: alpine:3.20
-    container_name: comfy-init-volumes-gpu0
-    user: "0:0"
-    command: >-
-      sh -lc "
-      mkdir -p
-      /workspace/comfy/gpu0/run /workspace/comfy/gpu0/basedir
-      /workspace/router_data/outputs
-      && chown -R ${WANTED_UID:-1000}:${WANTED_GID:-1000} /workspace/comfy /workspace/router_data
-      && chmod +x /workspace/comfy/user_script.bash
-      "
-    volumes:
-      - ./:/workspace
-    restart: "no"
-
   comfyui-gpu0:
     image: mmartial/comfyui-nvidia-docker:ubuntu22_cuda12.2-20260121
     container_name: comfyui-gpu0
@@ -27,10 +11,6 @@ services:
       SECURITY_LEVEL: normal
       NVIDIA_VISIBLE_DEVICES: "0"
       COMFY_CMDLINE_EXTRA: "--listen 0.0.0.0 --port 8188"
-    volumes:
-      - ./comfy/gpu0/run:/comfy/mnt
-      - ./comfy/gpu0/basedir:/basedir
-      - ./comfy/user_script.bash:/comfy/mnt/user_script.bash:ro
     ports:
       - "19165:8188"
     expose:
@@ -42,9 +22,6 @@ services:
             - driver: nvidia
               device_ids: ["0"]
               capabilities: [gpu]
-    depends_on:
-      init-volumes:
-        condition: service_completed_successfully
     networks:
       - comfy-net
 
@@ -59,8 +36,6 @@ services:
       OUTPUT_DIR: "/data/outputs"
     ports:
       - "19164:19164"
-    volumes:
-      - ./router_data:/data
     depends_on:
       comfyui-gpu0:
         condition: service_started
