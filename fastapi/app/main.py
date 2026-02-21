@@ -114,6 +114,36 @@ async def app_lifespan(_app: FastAPI):
 app = FastAPI(title="ComfyUI GPU Router", version="1.0.0", lifespan=app_lifespan)
 
 
+def _request_headers_for_upstream(request: Request) -> dict[str, str]:
+    blocked = {"host", "content-length", "connection"}
+    return {k: v for k, v in request.headers.items() if k.lower() not in blocked}
+
+
+def _response_headers_for_client(headers: httpx.Headers) -> dict[str, str]:
+    blocked = {"content-length", "transfer-encoding", "connection"}
+    return {k: v for k, v in headers.items() if k.lower() not in blocked}
+
+
+async def _passthrough_http(request: Request, worker_host_port: str) -> Response:
+    worker = _get_worker_or_500(worker_host_port)
+    timeout = httpx.Timeout(settings.request_timeout_seconds)
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        upstream_response = await client.request(
+            method=request.method,
+            url=f"{worker.http_base_url}{request.url.path}",
+            params=request.query_params,
+            content=await request.body(),
+            headers=_request_headers_for_upstream(request),
+        )
+
+    return Response(
+        content=upstream_response.content,
+        status_code=upstream_response.status_code,
+        headers=_response_headers_for_client(upstream_response.headers),
+        media_type=upstream_response.headers.get("content-type"),
+    )
+
+
 def _get_worker_or_500(host_port: str):
     worker = worker_by_host_port.get(host_port)
     if worker is None:
@@ -551,3 +581,14 @@ async def infer(
             for idx, output in enumerate(job.outputs)
         ],
     }
+
+
+@app.api_route(
+    "/{full_path:path}",
+    methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"],
+)
+async def catch_all_passthrough(full_path: str, request: Request) -> Response:
+    if full_path.startswith("v1/") or full_path == "healthz":
+        raise HTTPException(status_code=404, detail="route not found")
+    async with pool.lease() as worker:
+        return await _passthrough_http(request, worker.host_port)
